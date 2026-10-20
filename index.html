@@ -53,6 +53,7 @@
 <body>
 <header>
   <div class="marca">Asistente<span class="estado" id="estado">en línea</span></div>
+  <button id="btnInstalar" style="display:none;background:var(--acento)">Instalar</button>
   <button id="btnMenu" aria-label="Opciones">Opciones</button>
 </header>
 <div id="app" style="flex:1;display:flex;flex-direction:column;min-height:0"></div>
@@ -149,6 +150,12 @@ $('btnMenu').onclick = () => {
   if (op === '1') { historial = []; guardarHist(); pantallaChat(); }
   if (op === '2') { borrar('asis_key'); pantallaLlave(); }
 };
+
+// Chrome avisa cuando la página se puede instalar como app de verdad; ahí mostramos el botón.
+let instalador = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); instalador = e; $('btnInstalar').style.display = ''; });
+$('btnInstalar').onclick = async () => { if (!instalador) return; instalador.prompt(); await instalador.userChoice; instalador = null; $('btnInstalar').style.display = 'none'; };
+window.addEventListener('appinstalled', () => { $('btnInstalar').style.display = 'none'; });
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 leer('asis_key') ? pantallaChat() : pantallaLlave();

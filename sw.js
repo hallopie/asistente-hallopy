@@ -1,6 +1,6 @@
 // Service worker del Asistente: guarda la "cáscara" de la app para que abra rápido.
 // Las llamadas a Make (mensajes al asistente) siempre van a internet, nunca al caché.
-const CACHE = 'asistente-v1';
+const CACHE = 'asistente-v2';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
