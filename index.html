@@ -43,6 +43,8 @@
   textarea{flex:1;resize:none;border:1px solid var(--linea);border-radius:20px;padding:11px 14px;font:inherit;font-size:16px;max-height:140px;background:var(--burbuja);color:var(--texto)}
   form button{width:46px;height:46px;border-radius:50%;border:0;background:var(--acento);color:#fff;font-size:20px;align-self:flex-end}
   form button:disabled{opacity:.45}
+  #btnMic{background:var(--azul)}
+  #btnMic.grabando{background:var(--alerta);animation:p 1.2s infinite}
   .bloqueo{flex:1;display:flex;flex-direction:column;justify-content:center;padding:24px;gap:12px;max-width:460px;margin:0 auto;width:100%}
   .bloqueo h1{margin:0;font-size:22px}
   .bloqueo p{margin:0;color:var(--suave);line-height:1.4}
@@ -82,6 +84,7 @@ OneSignalDeferred.push(async function (OneSignal) {
 
 <script>
 const API = 'https://hook.us2.make.com/sit9bphdnqh2ojcp2pp89b3nt8mqo9b6';
+const API_VOZ = 'https://hook.us2.make.com/taapv9k8vc0i728j14srclfkhcdg9run';
 const ATAJOS = ['¿Qué tengo hoy?', '¿Qué tengo esta semana?', 'Mis pendientes', 'Recuérdame '];
 
 const guardar = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
@@ -119,7 +122,7 @@ function pantallaLlave(mensaje) {
 function pantallaChat() {
   $('app').innerHTML = `<div id="chat" aria-live="polite"></div>
     <div class="atajos" id="atajos">${ATAJOS.map((a) => `<button type="button">${a}</button>`).join('')}</div>
-    <form id="form"><textarea id="txt" rows="1" placeholder="Escríbele a tu asistente…"></textarea><button id="btnEnviar" aria-label="Enviar">➤</button></form>`;
+    <form id="form"><textarea id="txt" rows="1" placeholder="Escríbele a tu asistente…"></textarea><button type="button" id="btnMic" aria-label="Nota de voz">🎙️</button><button id="btnEnviar" aria-label="Enviar">➤</button></form>`;
   if (!historial.length) historial.push({ de: 'el', t: Date.now(), texto: '¡Hola! Pídeme lo mismo que en Telegram: pendientes, recordatorios, juntas, correos.' });
   historial.forEach(pintarMsg);
   abajo();
@@ -127,6 +130,7 @@ function pantallaChat() {
   txt.addEventListener('input', () => { txt.style.height = 'auto'; txt.style.height = Math.min(txt.scrollHeight, 140) + 'px'; });
   txt.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); enviar(); } });
   $('form').addEventListener('submit', (e) => { e.preventDefault(); enviar(); });
+  $('btnMic').onclick = alternarGrabacion;
   $('atajos').querySelectorAll('button').forEach((b) => b.onclick = () => {
     if (b.textContent.endsWith(' ')) { txt.value = b.textContent; txt.focus(); } else { txt.value = b.textContent; enviar(); }
   });
@@ -179,6 +183,57 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); inst
 $('btnInstalar').onclick = async () => { if (!instalador) return; instalador.prompt(); await instalador.userChoice; instalador = null; $('btnInstalar').style.display = 'none'; };
 window.addEventListener('appinstalled', () => { $('btnInstalar').style.display = 'none'; });
 
+
+
+// ---- Notas de voz: graba, manda el audio a Make, se transcribe y se ejecuta como texto ----
+let grabadora = null, trozos = [], inicioGrab = 0, tope = null;
+async function alternarGrabacion() {
+  if (grabadora && grabadora.state === 'recording') { grabadora.stop(); return; }
+  if (ocupado) return;
+  if (!navigator.mediaDevices || !window.MediaRecorder) { alert('Este navegador no deja grabar audio.'); return; }
+  let flujo;
+  try { flujo = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { alert('Necesito permiso del micrófono para grabar.'); return; }
+  const tipo = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
+  grabadora = new MediaRecorder(flujo, tipo ? { mimeType: tipo } : {});
+  trozos = []; inicioGrab = Date.now();
+  grabadora.ondataavailable = (e) => { if (e.data.size) trozos.push(e.data); };
+  grabadora.onstop = () => {
+    clearTimeout(tope); flujo.getTracks().forEach((t) => t.stop());
+    $('btnMic').classList.remove('grabando'); $('btnMic').textContent = '🎙️';
+    const seg = Math.round((Date.now() - inicioGrab) / 1000);
+    if (seg < 1) return;
+    enviarVoz(new Blob(trozos, { type: grabadora.mimeType || 'audio/webm' }), seg);
+  };
+  grabadora.start();
+  $('btnMic').classList.add('grabando'); $('btnMic').textContent = '⏹';
+  tope = setTimeout(() => { if (grabadora.state === 'recording') grabadora.stop(); }, 120000);
+}
+function aBase64(blob) {
+  return new Promise((ok, mal) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = mal; r.readAsDataURL(blob); });
+}
+async function enviarVoz(blob, seg) {
+  const llave = leer('asis_key'); if (!llave) return pantallaLlave();
+  ocupado = true; $('btnEnviar').disabled = true; $('btnMic').disabled = true;
+  const yo = { de: 'yo', t: Date.now(), texto: '🎙️ Nota de voz (' + seg + ' s)' }; historial.push(yo); guardarHist(); pintarMsg(yo);
+  const esc = document.createElement('div'); esc.className = 'escribiendo'; esc.innerHTML = 'escuchando <span>●</span><span>●</span><span>●</span>';
+  $('chat').appendChild(esc); abajo(); $('estado').textContent = 'escuchando…';
+  const ext = (blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm');
+  let resp;
+  try {
+    const b64 = await aBase64(blob);
+    const r = await fetch(API_VOZ, { method: 'POST', body: new URLSearchParams({ key: llave, audio_b64: b64, filename: 'nota.' + ext }) });
+    const cuerpo = (await r.text()).trim();
+    if (!r.ok) throw new Error('status ' + r.status);
+    resp = { de: 'el', t: Date.now(), texto: (!cuerpo || cuerpo === 'Accepted') ? 'Recibí tu audio, pero no alcancé a contestarte. Revisa en un momento.' : cuerpo };
+  } catch (e) {
+    resp = { de: 'el error', t: Date.now(), texto: 'Sin conexión. El audio no se envió; inténtalo otra vez.' };
+  }
+  esc.remove(); $('estado').textContent = 'en línea';
+  if (resp.de === 'el') { historial.push(resp); guardarHist(); }
+  pintarMsg(resp); abajo();
+  ocupado = false; $('btnEnviar').disabled = false; $('btnMic').disabled = false;
+}
 
 // ---- Avisos push ----
 function actualizarBotonPush() {
