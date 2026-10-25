@@ -3,7 +3,7 @@ importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
 
 // Service worker del Asistente: guarda la "cáscara" de la app para que abra rápido.
 // Las llamadas a Make (mensajes al asistente) siempre van a internet, nunca al caché.
-const CACHE = 'asistente-v4';
+const CACHE = 'asistente-v5';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
