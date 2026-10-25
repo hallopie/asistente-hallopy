@@ -49,10 +49,32 @@
   .bloqueo input{padding:14px;border-radius:12px;border:1px solid var(--linea);font-size:16px;background:var(--burbuja);color:var(--texto)}
   .bloqueo button{padding:15px;border:0;border-radius:12px;background:var(--azul);color:#fff;font-size:16px;font-weight:bold}
 </style>
+<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+<script>
+// Notificaciones push (OneSignal). Comparte el mismo service worker de la app (sw.js).
+window.OneSignalDeferred = window.OneSignalDeferred || [];
+OneSignalDeferred.push(async function (OneSignal) {
+  await OneSignal.init({
+    appId: '85dec062-ede4-4462-8a75-6739f23cd128',
+    serviceWorkerPath: 'asistente-hallopy/sw.js',
+    serviceWorkerParam: { scope: '/asistente-hallopy/' },
+    notifyButton: { enable: false }
+  });
+  // Identificador fijo para que Make le mande los avisos a este usuario.
+  try { await OneSignal.login('hallopy'); } catch (e) {}
+  window.__os = OneSignal;
+  actualizarBotonPush();
+  OneSignal.Notifications.addEventListener('permissionChange', actualizarBotonPush);
+  // Los avisos que llegan (con la app abierta o al tocarlos) se guardan en el chat.
+  OneSignal.Notifications.addEventListener('foregroundWillDisplay', (e) => agregarAviso(e.notification));
+  OneSignal.Notifications.addEventListener('click', (e) => agregarAviso(e.notification));
+});
+</script>
 </head>
 <body>
 <header>
   <div class="marca">Asistente<span class="estado" id="estado">en línea</span></div>
+  <button id="btnPush" style="display:none;background:var(--acento)">🔔 Avisos</button>
   <button id="btnInstalar" style="display:none;background:var(--acento)">Instalar</button>
   <button id="btnMenu" aria-label="Opciones">Opciones</button>
 </header>
@@ -156,6 +178,32 @@ let instalador = null;
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); instalador = e; $('btnInstalar').style.display = ''; });
 $('btnInstalar').onclick = async () => { if (!instalador) return; instalador.prompt(); await instalador.userChoice; instalador = null; $('btnInstalar').style.display = 'none'; };
 window.addEventListener('appinstalled', () => { $('btnInstalar').style.display = 'none'; });
+
+
+// ---- Avisos push ----
+function actualizarBotonPush() {
+  const os = window.__os; const b = $('btnPush'); if (!b) return;
+  const activo = os && os.Notifications.permission && os.User.PushSubscription.optedIn;
+  b.style.display = os && !activo ? '' : 'none';
+}
+$('btnPush').onclick = async () => {
+  const os = window.__os; if (!os) return;
+  await os.Notifications.requestPermission();
+  try { await os.User.PushSubscription.optIn(); } catch (e) {}
+  actualizarBotonPush();
+};
+const avisosVistos = new Set();
+function agregarAviso(n) {
+  if (!n) return;
+  const id = n.notificationId || n.id || (n.title + n.body);
+  if (avisosVistos.has(id)) return; avisosVistos.add(id);
+  const extra = n.additionalData || {};
+  const texto = extra.texto || [n.title, n.body].filter(Boolean).join('\n');
+  if (!texto) return;
+  const m = { de: 'el', t: Date.now(), texto };
+  historial.push(m); guardarHist();
+  if ($('chat')) { pintarMsg(m); abajo(); }
+}
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 leer('asis_key') ? pantallaChat() : pantallaLlave();
